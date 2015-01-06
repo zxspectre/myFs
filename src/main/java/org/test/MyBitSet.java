@@ -7,4 +7,6 @@ public interface MyBitSet {
     int nextClear(int startFrom);
     void clear(int pos);
     void set(int pos);
+    byte[] toByteArray();
+    int getSerializedSize();
 }

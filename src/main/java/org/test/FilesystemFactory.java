@@ -15,10 +15,10 @@ public class FilesystemFactory {
     public static synchronized Filesystem getFilesystem(File storageFile) {
         String filepath = storageFile.getAbsolutePath();
         Filesystem res = filesystems.get(filepath);
-        if (res == null) {
-            res = new FilesystemImpl(storageFile);
-            filesystems.put(filepath, res);
-        }
+//        if (res == null) {
+//            res = new FilesystemImpl(storageFile);
+//            filesystems.put(filepath, res);
+//        }
         return res;
     }
 }

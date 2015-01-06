@@ -4,23 +4,38 @@ import org.test.exception.OutOfFileException;
 import org.test.exception.PathDoesNotExistException;
 import org.test.exception.StorageException;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 
 /**
  * Compiles on Java7. <br>
  * Behavioral contract may not be exactly homogeneous (return -vs- exceptions) but existing FS was taken as reference in this regard. <br>
  * String[] path may be non-standard way (vs String path) but this can be easily fixed
  * and current solution was taken in order not to bother with escaping (this should not be relevant for current task). <br>
+ * Some meta-info of FS is stored in-memory. To sync it with File, 'sync' method should be called. It is called automatically on 'close'. <br>
  * Created by nay on 1/1/2015.
  */
-public interface Filesystem {
+public interface Filesystem extends Closeable{
     /**
-     * Mount filesystem for further use. Should be called before any operation is performed.
+     * Mount filesystem for further use. 'format' or 'mount' should be called before any operation is performed.
+     * @param storageFile file that will be used as underlying asset. Must already contain created FS.
      * @throws StorageException if file storage related problems occur.
      */
-    void init() throws StorageException;
+    void mount(File storageFile) throws StorageException;
+
+    /**
+     * Create new filesystem for further use. 'format' or 'mount' should be called before any operation is performed.
+     * @param storageFile file that will be used as underlying asset
+     * @param blockSize size in bytes of data block
+     * @param blockCnt total FS size in blocks
+     * @throws StorageException if file storage related problems occur.
+     */
+    void format(File storageFile, int blockSize, int blockCnt) throws StorageException;
+
+    /**
+     * Synchronize current FS state with underlying File.
+     * @throws StorageException if file storage related problems occur.
+     */
+    void sync() throws StorageException;
 
     /**
      * Tries to create directory for the specified path. May be blocked by operations altering FS tree.
@@ -64,6 +79,9 @@ public interface Filesystem {
      */
     void appendFile(String[] path, InputStream is) throws PathDoesNotExistException, OutOfFileException, StorageException, IOException;
 
+
+    void appendFile(String[] path, byte[] data) throws PathDoesNotExistException, OutOfFileException, StorageException, IOException;
+
     /**
      * Read from specified file and output its contents to the specified output stream.
      *
@@ -75,10 +93,5 @@ public interface Filesystem {
      */
     void readFile(String[] path, OutputStream os) throws PathDoesNotExistException, StorageException, IOException;
 
-    /**
-     * Performs defragmentation on the FS.
-     * @throws StorageException if some problems occur while working with FS file
-     */
-    void defragment() throws StorageException;
-
+    byte[] readFile(String[] path) throws PathDoesNotExistException, StorageException, IOException;
 }
