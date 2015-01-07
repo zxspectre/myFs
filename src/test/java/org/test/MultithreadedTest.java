@@ -39,6 +39,7 @@ public class MultithreadedTest {
 
     @After
     public void tearDown() throws Exception {
+        System.gc();
         fs.close();
         if (fsFile.exists()) {
             Files.delete(fsFile.toPath());
@@ -133,6 +134,10 @@ public class MultithreadedTest {
                     fs.writeFile(new String[]{""+id, filename}, data);
 
                     byte[] newData = fs.readFile(new String[]{""+id, filename});
+                    fs.readFile(new String[]{""+id, filename});
+                    fs.readFile(new String[]{""+id, filename});
+                    fs.readFile(new String[]{""+id, filename});
+                    fs.readFile(new String[]{""+id, filename});
                     Assert.assertTrue(Arrays.equals(data, newData));
 
                     //delete the file

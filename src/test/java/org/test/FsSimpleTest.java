@@ -34,6 +34,7 @@ public class FsSimpleTest {
 
     @After
     public void tearDown() throws Exception {
+        System.gc();
         fs.close();
         if (fsFile.exists()) {
             Files.delete(fsFile.toPath());

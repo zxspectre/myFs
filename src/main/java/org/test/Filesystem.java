@@ -7,11 +7,13 @@ import java.io.*;
 
 /**
  * Compiles vs Java7. <br>
- * Behavioral contract may not be exactly homogeneous (return -vs- exceptions) but existing FS was taken as reference in this regard. <br>
- * String[] path may be non-standard way (vs String path) but this can be easily fixed
- * and current solution was taken in order not to bother with escaping (this should not be relevant for current task). <br>
- * Some meta-info of FS is stored in-memory. To sync it with File, 'sync' method should be called. It is called automatically on 'close'. <br>
- * Only one filesystem can be opened for one underlying file.<br>
+ * <ul>
+ * <li>Behavioral contract may not be exactly homogeneous (return -vs- exceptions) but existing FS was taken as reference in this regard. </li>
+ * <li>String[] path may be non-standard way (vs String path) but this can be easily fixed
+ * and current solution was taken in order not to bother with escaping (this should not be relevant for current task). </li>
+ * <li>Some meta-info of FS is stored in-memory. To sync it with File, 'sync' method should be called. It is called automatically on 'close'. </li>
+ * <li>Only one filesystem can be opened for one underlying file.</li>
+ * </ul>
  * Created by nay on 1/1/2015.
  */
 public interface Filesystem extends Closeable {

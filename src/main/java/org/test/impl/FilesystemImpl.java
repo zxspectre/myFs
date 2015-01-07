@@ -7,17 +7,27 @@ import org.test.exception.StorageException;
 import org.test.entity.INode;
 
 import java.io.*;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Created by nay on 1/2/2015.
  */
 public class FilesystemImpl implements Filesystem {
-    RandomAccessFile f;
+    private RandomAccessFile f;
     private FsMeta fsMeta;
+    private ReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private Lock readLock = rwLock.readLock();
+    private Lock writeLock = rwLock.writeLock();
+
 
     @Override
     public void mount(File storageFile) throws StorageException {
@@ -25,11 +35,14 @@ public class FilesystemImpl implements Filesystem {
             throw new StorageException("File " + storageFile.getAbsolutePath() + " does not exist, cannot mount");
         } else {
             try {
+                writeLock.lock();
                 f = new RandomAccessFile(storageFile, "rws");
                 fsMeta = FsMeta.valueOf(f);
                 //TODO
             } catch (FileNotFoundException e) {
                 throw new StorageException("Error while mounting existing FS", e);
+            } finally {
+                writeLock.unlock();
             }
         }
     }
@@ -43,15 +56,18 @@ public class FilesystemImpl implements Filesystem {
         if (storageFile.exists()) {
             throw new StorageException("File " + storageFile.getAbsolutePath() + " already present. Delete it manually to confirm that you want to create new FS instead of mounting an existing one.");
         } else {
-            fsMeta = new FsMeta(blockSize, blockCnt);
             try {
+                writeLock.lock();
+                fsMeta = new FsMeta(blockSize, blockCnt);
                 storageFile.createNewFile();
                 f = new RandomAccessFile(storageFile, "rws");
+                sync();
+                writeDataBlock(DirData.getEmptyDirData(), FsMeta.ROOT_I_NODE);
             } catch (IOException e) {
                 throw new StorageException("Could not create filestorage file", e);
+            } finally {
+                writeLock.unlock();
             }
-            sync();
-            writeDataBlock(DirData.getEmptyDirData(), FsMeta.ROOT_I_NODE);
         }
     }
 
@@ -59,188 +75,227 @@ public class FilesystemImpl implements Filesystem {
     public void sync() throws StorageException {
         //serialize FSMeta to file
         try {
+            writeLock.lock();
             f.seek(0);
             f.write(fsMeta.toByteArray());
         } catch (IOException e) {
             throw new StorageException("Could not write meta info on sync", e);
+        } finally {
+            writeLock.unlock();
         }
     }
 
     @Override
-    public synchronized boolean mkdir(String[] path) throws PathDoesNotExistException, StorageException {
-        //find parent of the new dir
-        INode parentNode = browsePath(Util.getParentFromPath(path));
-        DirData parentDir = readDir(parentNode);
+    public boolean mkdir(String[] path) throws PathDoesNotExistException, StorageException {
+        try {
+            writeLock.lock();
+            //find parent of the new dir
+            INode parentNode = browsePath(Util.getParentFromPath(path));
+            DirData parentDir = readDir(parentNode);
 
-        //check if such dir/file name is already taken
-        String newDirName = path[path.length - 1];
-        Integer iNodeOfNewDir = tryGetDirChildByName(parentDir, newDirName);
-        if (iNodeOfNewDir == null) {
-            //try reserve iNode for new dir
-            int newINode = fsMeta.getFreeINode().nextClear(0);
-            fsMeta.getFreeINode().set(newINode);
+            //check if such dir/file name is already taken
+            String newDirName = path[path.length - 1];
+            Integer iNodeOfNewDir = tryGetDirChildByName(parentDir, newDirName);
+            if (iNodeOfNewDir == null) {
+                //try reserve iNode for new dir
+                int newINode = fsMeta.getFreeINode().nextClear(0);
+                fsMeta.getFreeINode().set(newINode);
 
-            //try reserve data for new dir
-            int newData = fsMeta.getFreeData().nextClear(0);
-            fsMeta.getFreeData().set(newData);
+                //try reserve data for new dir
+                int newData = fsMeta.getFreeData().nextClear(0);
+                fsMeta.getFreeData().set(newData);
 
-            //update new INode
-            INode newDirINode = new INode(false, newData);
-            fsMeta.getINodes()[newINode] = newDirINode;
+                //update new INode
+                INode newDirINode = new INode(false, newData);
+                fsMeta.getINodes()[newINode] = newDirINode;
 
-            //update parent dir info
-            parentDir.children.add(new DirData.DirDataEntry(newINode, newDirName));
-            overwriteDataForINode(parentNode, parentDir.toByteArray());
+                //update parent dir info
+                parentDir.children.add(new DirData.DirDataEntry(newINode, newDirName));
+                overwriteDataForINode(parentNode, parentDir.toByteArray());
 
-            //write empty dir info to data block
-            writeDataBlock(DirData.getEmptyDirData(), newData);
+                //write empty dir info to data block
+                writeDataBlock(DirData.getEmptyDirData(), newData);
 
-            return true;
-        } else {
-            //name is taken by file
-            if (fsMeta.getINodes()[iNodeOfNewDir].isFile()) {
-                throw new StorageException("The " + Arrays.toString(path) + " is already taken by file");
+                return true;
+            } else {
+                //name is taken by file
+                if (fsMeta.getINodes()[iNodeOfNewDir].isFile()) {
+                    throw new StorageException("The " + Arrays.toString(path) + " is already taken by file");
+                }
+                //dir name already taken
+                return false;
             }
-            //dir name already taken
-            return false;
+        } finally {
+            writeLock.unlock();
         }
     }
 
 
     @Override
-    public synchronized boolean createEmptyFile(String[] path) throws PathDoesNotExistException, StorageException {
-        //find parent of the new file
-        INode parentNode = browsePath(Util.getParentFromPath(path));
-        DirData parentDir = readDir(parentNode);
+    public boolean createEmptyFile(String[] path) throws PathDoesNotExistException, StorageException {
+        try {
+            writeLock.lock();
+            //find parent of the new file
+            INode parentNode = browsePath(Util.getParentFromPath(path));
+            DirData parentDir = readDir(parentNode);
 
-        //check if such dir/file name is already taken
-        String newDirName = path[path.length - 1];
-        Integer iNodeOfNewDir = tryGetDirChildByName(parentDir, newDirName);
-        if (iNodeOfNewDir == null) {
-            //try reserve iNode for new file
-            int newINode = fsMeta.getFreeINode().nextClear(0);
-            fsMeta.getFreeINode().set(newINode);
+            //check if such dir/file name is already taken
+            String newDirName = path[path.length - 1];
+            Integer iNodeOfNewDir = tryGetDirChildByName(parentDir, newDirName);
+            if (iNodeOfNewDir == null) {
+                //try reserve iNode for new file
+                int newINode = fsMeta.getFreeINode().nextClear(0);
+                fsMeta.getFreeINode().set(newINode);
 
-            //try reserve data for new file
-            int newData = fsMeta.getFreeData().nextClear(0);
-            fsMeta.getFreeData().set(newData);
+                //try reserve data for new file
+                int newData = fsMeta.getFreeData().nextClear(0);
+                fsMeta.getFreeData().set(newData);
 
-            //update new INode
-            INode newDirINode = new INode(true, newData);
-            fsMeta.getINodes()[newINode] = newDirINode;
+                //update new INode
+                INode newDirINode = new INode(true, newData);
+                fsMeta.getINodes()[newINode] = newDirINode;
 
-            //update parent dir info
-            parentDir.children.add(new DirData.DirDataEntry(newINode, newDirName));
-            overwriteDataForINode(parentNode, parentDir.toByteArray());
+                //update parent dir info
+                parentDir.children.add(new DirData.DirDataEntry(newINode, newDirName));
+                overwriteDataForINode(parentNode, parentDir.toByteArray());
 
-            //write empty file info to data block
-            writeDataBlock(new byte[0], newData);
+                //write empty file info to data block
+                writeDataBlock(new byte[0], newData);
 
-            return true;
-        } else {
-            //name is taken by dir
-            if (!fsMeta.getINodes()[iNodeOfNewDir].isFile()) {
-                throw new StorageException("The " + Arrays.toString(path) + " is already taken by directory");
+                return true;
+            } else {
+                //name is taken by dir
+                if (!fsMeta.getINodes()[iNodeOfNewDir].isFile()) {
+                    throw new StorageException("The " + Arrays.toString(path) + " is already taken by directory");
+                }
+                //file name already taken
+                return false;
             }
-            //file name already taken
-            return false;
+        } finally {
+            writeLock.unlock();
         }
     }
 
     @Override
-    public synchronized void rm_r(String[] path) throws PathDoesNotExistException, StorageException {
-        //find parent of the new file
-        INode parentNode = browsePath(Util.getParentFromPath(path));
-        DirData parentDir = readDir(parentNode);
+    public void rm_r(String[] path) throws PathDoesNotExistException, StorageException {
+        try {
+            writeLock.lock();
+            //find parent of the new file
+            INode parentNode = browsePath(Util.getParentFromPath(path));
+            DirData parentDir = readDir(parentNode);
 
-        //check if such dir/file exists
-        String newDirName = path[path.length - 1];
-        Integer iNodeDeletion = tryGetDirChildByName(parentDir, newDirName);
-        if (iNodeDeletion == null) {
-            //no file/dir on this path
-            throw new PathDoesNotExistException("Path " + Arrays.toString(path) + " does not exist");
-        } else {
-            //update parent dir info
-            boolean childFound = false;
-            Iterator<DirData.DirDataEntry> iNodeIter = parentDir.children.iterator();
-            while (iNodeIter.hasNext()) {
-                DirData.DirDataEntry current = iNodeIter.next();
-                if (iNodeDeletion.equals(current.inode)) {
-                    childFound = true;
-                    iNodeIter.remove();
-                    break;
+            //check if such dir/file exists
+            String newDirName = path[path.length - 1];
+            Integer iNodeDeletion = tryGetDirChildByName(parentDir, newDirName);
+            if (iNodeDeletion == null) {
+                //no file/dir on this path
+                throw new PathDoesNotExistException("Path " + Arrays.toString(path) + " does not exist");
+            } else {
+                //update parent dir info
+                boolean childFound = false;
+                Iterator<DirData.DirDataEntry> iNodeIter = parentDir.children.iterator();
+                while (iNodeIter.hasNext()) {
+                    DirData.DirDataEntry current = iNodeIter.next();
+                    if (iNodeDeletion.equals(current.inode)) {
+                        childFound = true;
+                        iNodeIter.remove();
+                        break;
+                    }
+                }
+                if (!childFound) {
+                    throw new RuntimeException("Programmer error. Operation atomicity is broken.");
+                }
+                //TODO: shrink data block usage for parent when un-linking child
+                overwriteDataForINode(parentNode, parentDir.toByteArray());
+
+                //get list of child data blocks and iNodes
+                List<Integer> childDataBlocks = getDataBlocks(fsMeta.getINodes()[iNodeDeletion]);
+                List<Integer> childNodes = getINodes(fsMeta.getINodes()[iNodeDeletion]);
+                //also add the child iNode itself
+                childNodes.add(iNodeDeletion);
+
+                //mark them as free
+                for (Integer block : childDataBlocks) {
+                    fsMeta.getFreeData().clear(block);
+                }
+                for (Integer node : childNodes) {
+                    fsMeta.getFreeINode().clear(node);
+                    fsMeta.getINodes()[node] = null;
                 }
             }
-            if (!childFound) {
-                throw new RuntimeException("Programmer error. Operation atomicity is broken.");
-            }
-            //TODO: shrink data block usage for parent when un-linking child
-            overwriteDataForINode(parentNode, parentDir.toByteArray());
-
-            //get list of child data blocks and iNodes
-            List<Integer> childDataBlocks = getDataBlocks(fsMeta.getINodes()[iNodeDeletion]);
-            List<Integer> childNodes = getINodes(fsMeta.getINodes()[iNodeDeletion]);
-            //also add the child iNode itself
-            childNodes.add(iNodeDeletion);
-
-            //mark them as free
-            for (Integer block : childDataBlocks) {
-                fsMeta.getFreeData().clear(block);
-            }
-            for (Integer node : childNodes) {
-                fsMeta.getFreeINode().clear(node);
-                fsMeta.getINodes()[node] = null;
-            }
+        } finally {
+            writeLock.unlock();
         }
     }
 
     @Override
     public void writeFile(String[] path, InputStream is) throws PathDoesNotExistException, StorageException, IOException {
-        //TODO: implement streaming model
-        ByteArrayOutputStream input = new ByteArrayOutputStream();
-        int nRead;
-        byte[] data = new byte[1 << 14];
+        try {
+            writeLock.lock();
+            //TODO: implement streaming model
+            ByteArrayOutputStream input = new ByteArrayOutputStream();
+            int nRead;
+            byte[] data = new byte[1 << 14];
 
-        while ((nRead = is.read(data, 0, data.length)) != -1) {
-            input.write(data, 0, nRead);
+            while ((nRead = is.read(data, 0, data.length)) != -1) {
+                input.write(data, 0, nRead);
+            }
+
+            writeFile(path, input.toByteArray());
+        } finally {
+            writeLock.unlock();
         }
-
-        writeFile(path, input.toByteArray());
     }
 
 
     @Override
-    public synchronized void writeFile(String[] path, byte[] data) throws PathDoesNotExistException, StorageException, IOException {
-        //get file iNode
-        INode file = browse(path);
-        if (!file.isFile()) {
-            throw new PathDoesNotExistException("The " + Arrays.toString(path) + " is not a file (it's directory)");
+    public void writeFile(String[] path, byte[] data) throws PathDoesNotExistException, StorageException, IOException {
+        try {
+            writeLock.lock();
+            //get file iNode
+            INode file = browse(path);
+            if (!file.isFile()) {
+                throw new PathDoesNotExistException("The " + Arrays.toString(path) + " is not a file (it's directory)");
+            }
+            overwriteDataForINode(file, data);
+        } finally {
+            writeLock.unlock();
         }
-        overwriteDataForINode(file, data);
     }
 
     @Override
     public void readFile(String[] path, OutputStream os) throws PathDoesNotExistException, StorageException, IOException {
-        //TODO: implement streaming model
-        byte[] res = readFile(path);
-        os.write(res);
-        os.flush();
+        try {
+            readLock.lock();
+            //TODO: implement streaming model
+            byte[] res = readFile(path);
+            os.write(res);
+            os.flush();
+        } finally {
+            readLock.unlock();
+        }
     }
 
 
     @Override
-    public synchronized byte[] readFile(String[] path) throws PathDoesNotExistException, StorageException, IOException {
-        //get file iNode
-        INode file = browse(path);
-        if (!file.isFile()) {
-            throw new PathDoesNotExistException("The " + Arrays.toString(path) + " is not a file (it's directory)");
+    public byte[] readFile(String[] path) throws PathDoesNotExistException, StorageException, IOException {
+        try {
+            readLock.lock();
+            //get file iNode
+            INode file = browse(path);
+            if (!file.isFile()) {
+                throw new PathDoesNotExistException("The " + Arrays.toString(path) + " is not a file (it's directory)");
+            }
+            return readDataBlocks(file);
+        } finally {
+            readLock.unlock();
         }
-        return readDataBlocks(file);
     }
 
     @Override
     public void close() throws IOException {
         try {
+            writeLock.lock();
             if (f.getChannel().isOpen()) {
                 sync();
                 f.close();
@@ -249,6 +304,8 @@ public class FilesystemImpl implements Filesystem {
             }
         } catch (StorageException e) {
             throw new IOException(e);
+        } finally {
+            writeLock.unlock();
         }
     }
 
@@ -358,14 +415,39 @@ public class FilesystemImpl implements Filesystem {
                     break; //will not be required if shrink of unused blocks is implemented
                 }
                 int dataInCurrentBlock = (iNode.size - dataRead > fsMeta.getBlockSize()) ? fsMeta.getBlockSize() : iNode.size - dataRead;
-                f.seek(fsMeta.getSerializedSize() + dataBlockRef * fsMeta.getBlockSize());
-                f.readFully(block);
+                //create byte buffer from file in order to parallelize read operations
+                MappedByteBuffer fileByteBuffer = f.getChannel().map(FileChannel.MapMode.READ_ONLY, fsMeta.getSerializedSize() + dataBlockRef * fsMeta.getBlockSize(), fsMeta.getBlockSize());
+                fileByteBuffer.get(block);
+
+                //TODO
+                //see http://bugs.java.com/bugdatabase/view_bug.do?bug_id=4724038
+                //it is not possible to correctly close MappedByteBuffer, the next hack is possible, but highly non-recommended
+                //so for now we wait until all mappedByteBuffers are 'gc'-ed (as in teardown of unittest)
+                //perhaps we need another solution to concurrently read file contents
+//                unmap(f.getChannel(), fileByteBuffer);
+
                 System.arraycopy(block, 0, res, dataRead, dataInCurrentBlock);
                 dataRead += fsMeta.getBlockSize();
             }
             return res;
         } catch (IOException e) {
             throw new StorageException("Could not read block data", e);
+        }
+    }
+
+    private static void unmap(FileChannel fc, MappedByteBuffer bb) {
+        try {
+            Class<?> fcClass = fc.getClass();
+            java.lang.reflect.Method unmapMethod = null;
+            unmapMethod = fcClass.getDeclaredMethod("unmap", new Class[]{MappedByteBuffer.class});
+            unmapMethod.setAccessible(true);
+            unmapMethod.invoke(null, new Object[]{bb});
+        } catch (NoSuchMethodException e) {
+            e.printStackTrace();
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
         }
     }
 
