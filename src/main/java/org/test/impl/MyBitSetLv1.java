@@ -1,6 +1,7 @@
 package org.test.impl;
 
 import org.test.MyBitSet;
+import org.test.exception.StorageException;
 
 import java.util.BitSet;
 
@@ -19,26 +20,37 @@ public class MyBitSetLv1 implements MyBitSet {
     }
 
 
-    public MyBitSetLv1(byte[] serializedForm, int fsBlockCnt){
+    public MyBitSetLv1(byte[] serializedForm, int fsBlockCnt) {
         //we can infer this from byte array, but for robustness get it explicitly (because we can)
         this.fsBlockCnt = fsBlockCnt;
         this.freeSpaceLv1 = BitSet.valueOf(serializedForm);
     }
 
     @Override
-    public int nextClear(int startFrom) {
-//        System.out.println("Perform range check. bitset is dynamical");
-        return freeSpaceLv1.nextClearBit(startFrom);
+    public int nextClear(int startFrom) throws StorageException {
+        if (startFrom < fsBlockCnt) {
+            return freeSpaceLv1.nextClearBit(startFrom);
+        } else {
+            throw new StorageException("Filesystem is full.");
+        }
     }
 
     @Override
-    public void clear(int pos) {
-        freeSpaceLv1.clear(pos);
+    public void clear(int pos) throws StorageException {
+        if (pos < fsBlockCnt) {
+            freeSpaceLv1.clear(pos);
+        } else {
+            throw new StorageException("Filesystem is full.");
+        }
     }
 
     @Override
-    public void set(int pos) {
-        freeSpaceLv1.set(pos);
+    public void set(int pos) throws StorageException {
+        if (pos < fsBlockCnt) {
+            freeSpaceLv1.set(pos);
+        } else {
+            throw new StorageException("Filesystem is full.");
+        }
     }
 
     @Override

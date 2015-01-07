@@ -1,38 +1,39 @@
 package org.test;
 
-import org.test.exception.OutOfFileException;
 import org.test.exception.PathDoesNotExistException;
 import org.test.exception.StorageException;
 
 import java.io.*;
 
 /**
- * Compiles on Java7. <br>
+ * Compiles vs Java7. <br>
  * Behavioral contract may not be exactly homogeneous (return -vs- exceptions) but existing FS was taken as reference in this regard. <br>
  * String[] path may be non-standard way (vs String path) but this can be easily fixed
  * and current solution was taken in order not to bother with escaping (this should not be relevant for current task). <br>
  * Some meta-info of FS is stored in-memory. To sync it with File, 'sync' method should be called. It is called automatically on 'close'. <br>
+ * Only one filesystem can be opened for one underlying file.<br>
  * Created by nay on 1/1/2015.
  */
-public interface Filesystem extends Closeable{
+public interface Filesystem extends Closeable {
     /**
      * Mount filesystem for further use. 'format' or 'mount' should be called before any operation is performed.
-     * @param storageFile file that will be used as underlying asset. Must already contain created FS.
+     *
      * @throws StorageException if file storage related problems occur.
      */
     void mount(File storageFile) throws StorageException;
 
     /**
      * Create new filesystem for further use. 'format' or 'mount' should be called before any operation is performed.
-     * @param storageFile file that will be used as underlying asset
+     *
      * @param blockSize size in bytes of data block
-     * @param blockCnt total FS size in blocks
+     * @param blockCnt  total FS size in blocks
      * @throws StorageException if file storage related problems occur.
      */
     void format(File storageFile, int blockSize, int blockCnt) throws StorageException;
 
     /**
      * Synchronize current FS state with underlying File.
+     *
      * @throws StorageException if file storage related problems occur.
      */
     void sync() throws StorageException;
@@ -67,20 +68,27 @@ public interface Filesystem extends Closeable{
     void rm_r(String[] path) throws PathDoesNotExistException, StorageException;
 
     /**
-     * Read from specified InputStream and append (existing data will be retained) its contents to the specified file.<br>
-     * File overwrite can be performed by rm_r() followed by appendFile().
+     * Read from specified InputStream write its contents to the specified file. Old file data will be lost.<br>
      *
      * @param path specifies file that will have content appended to it
-     * @param is   specifies input stream that contains data which should be appended to the file
+     * @param is   specifies input stream that contains data which should be written to the file
      * @throws PathDoesNotExistException if one of the parent directories does not exist for the file
-     * @throws OutOfFileException        if no space left on FS to store data
      * @throws StorageException          if problems occur with the 'File' (our FS 'hardware')
      * @throws IOException               if problems occur while working with specified InputStream
      */
-    void appendFile(String[] path, InputStream is) throws PathDoesNotExistException, OutOfFileException, StorageException, IOException;
+    void writeFile(String[] path, InputStream is) throws PathDoesNotExistException, StorageException, IOException;
 
 
-    void appendFile(String[] path, byte[] data) throws PathDoesNotExistException, OutOfFileException, StorageException, IOException;
+    /**
+     * Write byte array to the specified file. Old file data will be lost.<br>
+     *
+     * @param path specifies file that will have content appended to it
+     * @param data byte array with data to be written to the file
+     * @throws PathDoesNotExistException if one of the parent directories does not exist for the file
+     * @throws StorageException          if problems occur with the 'File' (our FS 'hardware')
+     * @throws IOException               if problems occur while working with specified InputStream
+     */
+    void writeFile(String[] path, byte[] data) throws PathDoesNotExistException, StorageException, IOException;
 
     /**
      * Read from specified file and output its contents to the specified output stream.
@@ -93,5 +101,14 @@ public interface Filesystem extends Closeable{
      */
     void readFile(String[] path, OutputStream os) throws PathDoesNotExistException, StorageException, IOException;
 
+    /**
+     * Read from specified file and output its contents as a byte array
+     *
+     * @param path specifies file that will have content read
+     * @return byte array with data from file
+     * @throws PathDoesNotExistException if one of the parent directories does not exist for the file
+     * @throws StorageException          if problems occur with the 'File' (our FS 'hardware')
+     * @throws IOException               if problems occur while working with specified OutputStream
+     */
     byte[] readFile(String[] path) throws PathDoesNotExistException, StorageException, IOException;
 }

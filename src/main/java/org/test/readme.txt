@@ -12,3 +12,4 @@ Some thoughts:
 5. Manual serialization was made to have control over serialized data length.
 6. Exceptions handling must be reviewed. In some cases FS can remain in broken state. (try-catch every operation on high-level, try to rollback it on catch) e.g. append to file content -
  we go out of mem, then remove the file and its data blocks to rollback the failed append (not very gracious)
+7. Exceptions hierarchy should be extended (too much situations are handled by StorageException)

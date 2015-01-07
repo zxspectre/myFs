@@ -52,13 +52,17 @@ public class FsMeta {
         iNodes = new INode[fsSize];
         //init root INode
         iNodes[ROOT_I_NODE] = new INode(false, ROOT_I_NODE);
-        //mark accordingly associated bit vectors for root node
-        freeData.set(ROOT_I_NODE);
-        freeINode.set(ROOT_I_NODE);
+        try {
+            //mark accordingly associated bit vectors for root node
+            freeData.set(ROOT_I_NODE);
+            freeINode.set(ROOT_I_NODE);
+        } catch (StorageException e) {
+            throw new RuntimeException("Programmer error. Cannot create root node.");
+        }
     }
 
     static FsMeta valueOf(RandomAccessFile f) throws StorageException {
-        try{
+        try {
             f.seek(0);
             int serializedSize = f.readInt();
             //not exactly fine, perhaps should move some logic to BitSetFactory, but this should work with small overhead
@@ -66,7 +70,7 @@ public class FsMeta {
             f.seek(0);
             f.readFully(serializedForm);
             return valueOf(serializedForm);
-        }catch (IOException e){
+        } catch (IOException e) {
             throw new StorageException("Error mounting FS. Cannot read meta info.");
         }
     }
@@ -105,7 +109,7 @@ public class FsMeta {
         for (int i = 0; i < fsSize; i++) {
             System.arraycopy(serializedForm, sfOffset, iNodeBytes, 0, INode.getSerializedSize());
             sfOffset += INode.getSerializedSize();
-            if(!byteArrayEmpty(iNodeBytes)) {
+            if (!byteArrayEmpty(iNodeBytes)) {
                 res.iNodes[i] = new INode(iNodeBytes);
             }
         }
@@ -123,7 +127,7 @@ public class FsMeta {
         return true;
     }
 
-    public int getSerializedSize(){
+    public int getSerializedSize() {
         return PRE_HEADER_SIZE + freeData.getSerializedSize() + freeINode.getSerializedSize() + fsSize * INode.getSerializedSize();
     }
 

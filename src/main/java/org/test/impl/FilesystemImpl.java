@@ -2,19 +2,20 @@ package org.test.impl;
 
 import org.test.Filesystem;
 import org.test.entity.DirData;
-import org.test.exception.OutOfFileException;
 import org.test.exception.PathDoesNotExistException;
 import org.test.exception.StorageException;
 import org.test.entity.INode;
 
 import java.io.*;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * Created by nay on 1/2/2015.
  */
 public class FilesystemImpl implements Filesystem {
-    private File storageFile;
     RandomAccessFile f;
     private FsMeta fsMeta;
 
@@ -24,7 +25,6 @@ public class FilesystemImpl implements Filesystem {
             throw new StorageException("File " + storageFile.getAbsolutePath() + " does not exist, cannot mount");
         } else {
             try {
-                this.storageFile = storageFile;
                 f = new RandomAccessFile(storageFile, "rws");
                 fsMeta = FsMeta.valueOf(f);
                 //TODO
@@ -37,10 +37,12 @@ public class FilesystemImpl implements Filesystem {
 
     @Override
     public void format(File storageFile, int blockSize, int blockCnt) throws StorageException {
+        if (blockSize < 2 || blockCnt < 2) {
+            throw new StorageException("Invalid parameters specified. File system must have block size and block count greater than one.");
+        }
         if (storageFile.exists()) {
             throw new StorageException("File " + storageFile.getAbsolutePath() + " already present. Delete it manually to confirm that you want to create new FS instead of mounting an existing one.");
         } else {
-            this.storageFile = storageFile;
             fsMeta = new FsMeta(blockSize, blockCnt);
             try {
                 storageFile.createNewFile();
@@ -147,23 +149,68 @@ public class FilesystemImpl implements Filesystem {
 
     @Override
     public void rm_r(String[] path) throws PathDoesNotExistException, StorageException {
+        //find parent of the new file
+        INode parentNode = browsePath(Util.getParentFromPath(path));
+        DirData parentDir = readDir(parentNode);
 
+        //check if such dir/file exists
+        String newDirName = path[path.length - 1];
+        Integer iNodeDeletion = tryGetDirChildByName(parentDir, newDirName);
+        if (iNodeDeletion == null) {
+            //no file/dir on this path
+            throw new PathDoesNotExistException("Path " + Arrays.toString(path) + " does not exist");
+        } else {
+            //update parent dir info
+            boolean childFound = false;
+            Iterator<DirData.DirDataEntry> iNodeIter = parentDir.children.iterator();
+            while (iNodeIter.hasNext()) {
+                DirData.DirDataEntry current = iNodeIter.next();
+                if (iNodeDeletion.equals(current.inode)) {
+                    childFound = true;
+                    iNodeIter.remove();
+                    break;
+                }
+            }
+            if (!childFound) {
+                throw new RuntimeException("Programmer error. Operation atomicity is broken.");
+            }
+            //TODO: shrink data block usage for parent when un-linking child
+            overwriteDataForINode(parentNode, parentDir.toByteArray());
+
+            //get list of child data blocks and iNodes
+            List<Integer> childDataBlocks = getDataBlocks(fsMeta.getINodes()[iNodeDeletion]);
+            List<Integer> childNodes = getINodes(fsMeta.getINodes()[iNodeDeletion]);
+            //also add the child iNode itself
+            childNodes.add(iNodeDeletion);
+
+            //mark them as free
+            for (Integer block : childDataBlocks) {
+                fsMeta.getFreeData().clear(block);
+            }
+            for (Integer node : childNodes) {
+                fsMeta.getFreeINode().clear(node);
+                fsMeta.getINodes()[node] = null;
+            }
+        }
     }
 
     @Override
-    public void appendFile(String[] path, InputStream is) throws PathDoesNotExistException, OutOfFileException, StorageException, IOException {
-        //get file iNode
-        INode file = browsePath(path);
-        if (!file.isFile()) {
-            throw new PathDoesNotExistException("The " + Arrays.toString(path) + " is not a file (it's directory)");
+    public void writeFile(String[] path, InputStream is) throws PathDoesNotExistException, StorageException, IOException {
+        //TODO: implement streaming model
+        ByteArrayOutputStream input = new ByteArrayOutputStream();
+        int nRead;
+        byte[] data = new byte[1 << 14];
+
+        while ((nRead = is.read(data, 0, data.length)) != -1) {
+            input.write(data, 0, nRead);
         }
 
-
+        writeFile(path, input.toByteArray());
     }
 
 
     @Override
-    public void appendFile(String[] path, byte[] data) throws PathDoesNotExistException, OutOfFileException, StorageException, IOException {
+    public void writeFile(String[] path, byte[] data) throws PathDoesNotExistException, StorageException, IOException {
         //get file iNode
         INode file = browse(path);
         if (!file.isFile()) {
@@ -174,7 +221,10 @@ public class FilesystemImpl implements Filesystem {
 
     @Override
     public void readFile(String[] path, OutputStream os) throws PathDoesNotExistException, StorageException, IOException {
-
+        //TODO: implement streaming model
+        byte[] res = readFile(path);
+        os.write(res);
+        os.flush();
     }
 
 
@@ -303,6 +353,10 @@ public class FilesystemImpl implements Filesystem {
             byte[] res = new byte[iNode.size];
             byte[] block = new byte[fsMeta.getBlockSize()];
             for (int dataBlockRef : dataBlockRefs) {
+                //check if we have already read required data
+                if (dataRead >= iNode.size) {
+                    break; //will not be required if shrink of unused blocks is implemented
+                }
                 int dataInCurrentBlock = (iNode.size - dataRead > fsMeta.getBlockSize()) ? fsMeta.getBlockSize() : iNode.size - dataRead;
                 f.seek(fsMeta.getSerializedSize() + dataBlockRef * fsMeta.getBlockSize());
                 f.readFully(block);
@@ -323,7 +377,6 @@ public class FilesystemImpl implements Filesystem {
      * @param data
      */
     private void overwriteDataForINode(INode iNode, byte[] data) throws StorageException {
-        System.out.println("======Start overwrite=========");
 
         int[] dataBlockRefs;
         int totalBlocks;
@@ -347,7 +400,6 @@ public class FilesystemImpl implements Filesystem {
             int blocksAssignable = INode.DIRECT_POINTERS_SIZE - iNode.blocks;
 
             if (blocksAssignable > 0) {
-                System.out.println("we can fit new blocks in current iNode");
                 //we can fit new blocks in current iNode
                 for (int i = 0; i < blocksAssignable; i++) {
                     if (moreBlocks > 0) {
@@ -370,7 +422,6 @@ public class FilesystemImpl implements Filesystem {
                 INode currentINode = iNode;
 
                 while (moreBlocks > 0) {
-                    System.out.println("we must also create new iNode");
                     //get free iNode
                     int newNode = fsMeta.getFreeINode().nextClear(0);
                     fsMeta.getFreeINode().set(newNode);
@@ -404,9 +455,13 @@ public class FilesystemImpl implements Filesystem {
         //iterate over 'totalBlocks' amount of references from dataBlockRefs and store 'data' chunks in-order
         for (int i = 0; i < totalBlocks; i++) {
             int remainingDataForWrite = data.length - i * blockSize;
-            byte[] block4Write = new byte[blockSize];
-            System.arraycopy(data, i * blockSize, block4Write, 0, (remainingDataForWrite > blockSize) ? blockSize : remainingDataForWrite);
-            writeDataBlock(block4Write, dataBlockRefs[i]);
+            if (remainingDataForWrite > 0) {
+                byte[] block4Write = new byte[blockSize];
+                System.arraycopy(data, i * blockSize, block4Write, 0, (remainingDataForWrite > blockSize) ? blockSize : remainingDataForWrite);
+                writeDataBlock(block4Write, dataBlockRefs[i]);
+            } else {
+                //here we can shrink unused data blocks
+            }
         }
     }
 
@@ -439,4 +494,28 @@ public class FilesystemImpl implements Filesystem {
             throw new StorageException("Could not write", e);
         }
     }
+
+    private List<Integer> getDataBlocks(INode iNode) {
+        List<Integer> res = new ArrayList<>();
+        INode currentNode = iNode;
+        do {
+            for (int ref : currentNode.data) {
+                res.add(ref);
+            }
+            currentNode = fsMeta.getINodes()[currentNode.nextChunk];
+        } while (currentNode.nextChunk != 0);
+        res = res.subList(0, iNode.blocks);
+        return res;
+    }
+
+    private List<Integer> getINodes(INode iNode) {
+        List<Integer> res = new ArrayList<>();
+        INode currentNode = iNode;
+        while (currentNode.nextChunk != 0) {
+            res.add(currentNode.nextChunk);
+            currentNode = fsMeta.getINodes()[currentNode.nextChunk];
+        }
+        return res;
+    }
+
 }
