@@ -1,9 +1,6 @@
 package org.test;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 import org.test.exception.PathDoesNotExistException;
 import org.test.exception.StorageException;
 import org.test.impl.FilesystemImpl;
@@ -55,6 +52,7 @@ public class MultithreadedTest {
         Assert.assertTrue(future.get());
     }
 
+    @Ignore
     @Test
     public void testTwoThreadsNoDelay() throws Exception {
         fs.format(fsFile, 1 << 10, 1 << 16);
