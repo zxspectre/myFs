@@ -24,8 +24,8 @@ public class FsSimpleTest {
 
     @Before
     public void setup() throws Exception {
-//        fsFile = new File(testFileDir, testFileName);
-        fsFile = File.createTempFile(testFileName, null);
+        fsFile = new File(testFileDir, testFileName);
+//        fsFile = File.createTempFile(testFileName, null);
         if (fsFile.exists()) {
             fsFile.delete();
         }

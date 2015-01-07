@@ -5,7 +5,9 @@ Some thoughts:
  (e.g. more than one data block for some file/dir).
 3. Synchronization may be somewhat simpler that I intended to do initially, but that is due to increase of scope in FS-based logic
  (i.e. emphasis was shifted from multi-threading to more low-lvl FS workings). Also more efficient synchronization may not increase FS performance due to
- inadequate performance tuning of FS-code itself (e.g. disk caching, etc.).
+ inadequate performance tuning of FS-code itself (e.g. disk caching, etc.). In fact, current synchronization may be only marginally better than simple synchronization on instance level,
+ because we are working with files, but instance-level synchronization is way too simple and was not requested for this test, in my opinion. Of course when talking about performance
+ we should perform correct measurements and not just speculate, but please excuse me as I'll not be doing performance testing right now.
 4. I don't have much experience working in Java with low-lvl implementations, so coding style may be conflicting sometimes (i.e. OOP is upset sometimes).
  On the other hand, some pieces of code may perform badly (in terms of performance, when speaking about FS), but that optimization will require more effort that I think is required for this exercise.
  All in all I think there should be some balance of OOP structure in terms of classes and procedure-like some methods that can be written in a less popular way for Java (w/o getters, etc.).

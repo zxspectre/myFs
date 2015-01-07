@@ -67,7 +67,7 @@ public class FilesystemImpl implements Filesystem {
     }
 
     @Override
-    public boolean mkdir(String[] path) throws PathDoesNotExistException, StorageException {
+    public synchronized boolean mkdir(String[] path) throws PathDoesNotExistException, StorageException {
         //find parent of the new dir
         INode parentNode = browsePath(Util.getParentFromPath(path));
         DirData parentDir = readDir(parentNode);
@@ -108,7 +108,7 @@ public class FilesystemImpl implements Filesystem {
 
 
     @Override
-    public boolean createEmptyFile(String[] path) throws PathDoesNotExistException, StorageException {
+    public synchronized boolean createEmptyFile(String[] path) throws PathDoesNotExistException, StorageException {
         //find parent of the new file
         INode parentNode = browsePath(Util.getParentFromPath(path));
         DirData parentDir = readDir(parentNode);
@@ -148,7 +148,7 @@ public class FilesystemImpl implements Filesystem {
     }
 
     @Override
-    public void rm_r(String[] path) throws PathDoesNotExistException, StorageException {
+    public synchronized void rm_r(String[] path) throws PathDoesNotExistException, StorageException {
         //find parent of the new file
         INode parentNode = browsePath(Util.getParentFromPath(path));
         DirData parentDir = readDir(parentNode);
@@ -210,7 +210,7 @@ public class FilesystemImpl implements Filesystem {
 
 
     @Override
-    public void writeFile(String[] path, byte[] data) throws PathDoesNotExistException, StorageException, IOException {
+    public synchronized void writeFile(String[] path, byte[] data) throws PathDoesNotExistException, StorageException, IOException {
         //get file iNode
         INode file = browse(path);
         if (!file.isFile()) {
@@ -229,7 +229,7 @@ public class FilesystemImpl implements Filesystem {
 
 
     @Override
-    public byte[] readFile(String[] path) throws PathDoesNotExistException, StorageException, IOException {
+    public synchronized byte[] readFile(String[] path) throws PathDoesNotExistException, StorageException, IOException {
         //get file iNode
         INode file = browse(path);
         if (!file.isFile()) {
