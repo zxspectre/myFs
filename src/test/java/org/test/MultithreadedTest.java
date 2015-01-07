@@ -73,7 +73,7 @@ public class MultithreadedTest {
         List<FsOperator> workers = new ArrayList<>();
         List<Future<Boolean>> results = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
-            workers.add(new FsOperator(fs, i, (i+1) * 500, 0));
+            workers.add(new FsOperator(fs, i, (i + 1) * 500, 0));
         }
         for (FsOperator op : workers) {
             results.add(service.submit(op));
@@ -90,7 +90,7 @@ public class MultithreadedTest {
         List<FsOperator> workers = new ArrayList<>();
         List<Future<Boolean>> results = new ArrayList<>();
         for (int i = 0; i < 4; i++) {
-            workers.add(new FsOperator(fs, i, (i+1) * 500, 50));
+            workers.add(new FsOperator(fs, i, (i + 1) * 500, 50));
         }
         for (FsOperator op : workers) {
             results.add(service.submit(op));
@@ -121,31 +121,28 @@ public class MultithreadedTest {
             try {
                 String filename = "file" + id;
                 for (int i = 0; i < OPERATIONS_CNT; i++) {
-                    System.out.println(id);
+//                    System.out.println(id);
 
-                    fs.mkdir(new String[]{""+id});
-                    fs.createEmptyFile(new String[]{""+id, filename});
+                    fs.mkdir(new String[]{"" + id});
+                    fs.createEmptyFile(new String[]{"" + id, filename});
 
                     if (maxDelayMs > 0)
                         Thread.sleep(new Random().nextInt(maxDelayMs));
 
-                    byte[] data = new byte[new Random().nextInt(maxFilesize)];
+                    byte[] data = new byte[new Random().nextInt(maxFilesize) + 1];
                     new Random().nextBytes(data);
-                    fs.writeFile(new String[]{""+id, filename}, data);
+                    fs.writeFile(new String[]{"" + id, filename}, data);
 
-                    byte[] newData = fs.readFile(new String[]{""+id, filename});
-                    fs.readFile(new String[]{""+id, filename});
-                    fs.readFile(new String[]{""+id, filename});
-                    fs.readFile(new String[]{""+id, filename});
-                    fs.readFile(new String[]{""+id, filename});
+                    byte[] newData = fs.readFile(new String[]{"" + id, filename});
+
                     Assert.assertTrue(Arrays.equals(data, newData));
 
                     //delete the file
-                    fs.rm_r(new String[]{""+id});
+                    fs.rm_r(new String[]{"" + id});
                 }
                 //all operations succeeded
                 return true;
-            } catch (Exception e) {
+            } catch (Error e) {
                 e.printStackTrace();
                 return false;
             }

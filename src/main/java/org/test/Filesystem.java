@@ -7,12 +7,18 @@ import java.io.*;
 
 /**
  * Compiles vs Java7. <br>
+ *     See readme.txt for some notes on why it was implemented this way or another. <br>
+ *
  * <ul>
  * <li>Behavioral contract may not be exactly homogeneous (return -vs- exceptions) but existing FS was taken as reference in this regard. </li>
  * <li>String[] path may be non-standard way (vs String path) but this can be easily fixed
  * and current solution was taken in order not to bother with escaping (this should not be relevant for current task). </li>
  * <li>Some meta-info of FS is stored in-memory. To sync it with File, 'sync' method should be called. It is called automatically on 'close'. </li>
  * <li>Only one filesystem can be opened for one underlying file.</li>
+ * <li>Concurrent model is read-write lock based. Two {@link #readFile} methods are considered as 'read' all other operations (including {@link #mount}, {@link #format} and {@link #sync})
+ * are considered 'write' operations.</li>
+ * <li>Operations {@link #mkdir}, {@link #createEmptyFile}, {@link #writeFile} may encounter {@link StorageException} due to out of memory. In this case some rollback may be performed.
+ * For {@link #writeFile} that means that file, which content we tried to update, will be deleted.</li>
  * </ul>
  * Created by nay on 1/1/2015.
  */

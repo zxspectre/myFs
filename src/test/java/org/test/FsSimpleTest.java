@@ -90,7 +90,6 @@ public class FsSimpleTest {
     }
 
 
-
     @Test(expected = PathDoesNotExistException.class)
     public void testCreateFileInFile() throws Exception {
         fs.format(fsFile, 1 << 12, 1 << 10);
@@ -186,6 +185,36 @@ public class FsSimpleTest {
 
     }
 
+    @Test
+    public void testTooMuchFilesRollback() throws Exception {
+        fs.format(fsFile, 1 << 16, 1 << 2);
+        //can create only 3 files (in total FS has 4 iNodes)
+        fs.createEmptyFile(new String[]{"file1"});
+        fs.createEmptyFile(new String[]{"file2"});
+        fs.createEmptyFile(new String[]{"file3"});
+        //will fail
+        boolean errorOccurred = false;
+        try {
+            fs.createEmptyFile(new String[]{"file4"});
+        } catch (StorageException e) {
+            errorOccurred = true;
+        }
+        Assert.assertTrue(errorOccurred);
+
+
+        //remove all successfully created files
+        fs.rm_r(new String[]{"file1"});
+        fs.rm_r(new String[]{"file2"});
+        fs.rm_r(new String[]{"file3"});
+
+        //try to create up to max amount of files
+
+        fs.createEmptyFile(new String[]{"file1"});
+        fs.createEmptyFile(new String[]{"file2"});
+        fs.createEmptyFile(new String[]{"file3"});
+
+    }
+
     @Test(expected = StorageException.class)
     public void testTooMuchContent() throws Exception {
         fs.format(fsFile, 1 << 2, 1 << 2);
@@ -195,6 +224,30 @@ public class FsSimpleTest {
         new Random().nextBytes(data);
         fs.writeFile(new String[]{"file"}, data);
 
+    }
+
+    @Test
+    public void testTooMuchContentRollback() throws Exception {
+        fs.format(fsFile, 1 << 4, 1 << 2);
+        fs.createEmptyFile(new String[]{"file"});
+        //only 2 blocks in FS are left for file content
+
+        byte[] data = new byte[33];
+        new Random().nextBytes(data);
+        boolean errorOccurred = false;
+        try {
+            fs.writeFile(new String[]{"file"}, data);
+        } catch (StorageException e) {
+            errorOccurred = true;
+        }
+        Assert.assertTrue(errorOccurred);
+
+        //re create file after a failure writing to it
+        fs.createEmptyFile(new String[]{"file"});
+
+        data = new byte[32];
+        new Random().nextBytes(data);
+        fs.writeFile(new String[]{"file"}, data);
     }
 
     @Test

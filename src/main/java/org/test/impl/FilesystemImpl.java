@@ -2,6 +2,7 @@ package org.test.impl;
 
 import org.test.Filesystem;
 import org.test.entity.DirData;
+import org.test.exception.BaseFsException;
 import org.test.exception.PathDoesNotExistException;
 import org.test.exception.StorageException;
 import org.test.entity.INode;
@@ -101,20 +102,29 @@ public class FilesystemImpl implements Filesystem {
                 int newINode = fsMeta.getFreeINode().nextClear(0);
                 fsMeta.getFreeINode().set(newINode);
 
-                //try reserve data for new dir
-                int newData = fsMeta.getFreeData().nextClear(0);
-                fsMeta.getFreeData().set(newData);
+                //we reserved iNode for new file, try next operations, if some of them fail (most likely due to 'out-of-mem') remove new file to rollback the change
 
-                //update new INode
-                INode newDirINode = new INode(false, newData);
-                fsMeta.getINodes()[newINode] = newDirINode;
+                try {
 
-                //update parent dir info
-                parentDir.children.add(new DirData.DirDataEntry(newINode, newDirName));
-                overwriteDataForINode(parentNode, parentDir.toByteArray());
+                    //try reserve data for new dir
+                    int newData = fsMeta.getFreeData().nextClear(0);
+                    fsMeta.getFreeData().set(newData);
 
-                //write empty dir info to data block
-                writeDataBlock(DirData.getEmptyDirData(), newData);
+                    //update new INode
+                    INode newDirINode = new INode(false, newData);
+                    fsMeta.getINodes()[newINode] = newDirINode;
+
+                    //update parent dir info
+                    parentDir.children.add(new DirData.DirDataEntry(newINode, newDirName));
+                    overwriteDataForINode(parentNode, parentDir.toByteArray());
+
+                    //write empty dir info to data block
+                    writeDataBlock(DirData.getEmptyDirData(), newData);
+
+                } catch (StorageException e) {
+                    doRm_r(newINode, parentNode, parentDir);
+                    throw new StorageException("Could not create new directory " + Arrays.toString(path), e);
+                }
 
                 return true;
             } else {
@@ -147,20 +157,27 @@ public class FilesystemImpl implements Filesystem {
                 int newINode = fsMeta.getFreeINode().nextClear(0);
                 fsMeta.getFreeINode().set(newINode);
 
-                //try reserve data for new file
-                int newData = fsMeta.getFreeData().nextClear(0);
-                fsMeta.getFreeData().set(newData);
+                //we reserved iNode for new file, try next operations, if some of them fail (most likely due to 'out-of-mem') remove new file to rollback the change
 
-                //update new INode
-                INode newDirINode = new INode(true, newData);
-                fsMeta.getINodes()[newINode] = newDirINode;
+                try {
+                    //try reserve data for new file
+                    int newData = fsMeta.getFreeData().nextClear(0);
+                    fsMeta.getFreeData().set(newData);
 
-                //update parent dir info
-                parentDir.children.add(new DirData.DirDataEntry(newINode, newDirName));
-                overwriteDataForINode(parentNode, parentDir.toByteArray());
+                    //update new INode
+                    INode newDirINode = new INode(true, newData);
+                    fsMeta.getINodes()[newINode] = newDirINode;
 
-                //write empty file info to data block
-                writeDataBlock(new byte[0], newData);
+                    //update parent dir info
+                    parentDir.children.add(new DirData.DirDataEntry(newINode, newDirName));
+                    overwriteDataForINode(parentNode, parentDir.toByteArray());
+
+                    //write empty file info to data block
+                    writeDataBlock(new byte[0], newData);
+                } catch (StorageException e) {
+                    doRm_r(newINode, parentNode, parentDir);
+                    throw new StorageException("Could not create new empty file " + Arrays.toString(path), e);
+                }
 
                 return true;
             } else {
@@ -191,42 +208,13 @@ public class FilesystemImpl implements Filesystem {
                 //no file/dir on this path
                 throw new PathDoesNotExistException("Path " + Arrays.toString(path) + " does not exist");
             } else {
-                //update parent dir info
-                boolean childFound = false;
-                Iterator<DirData.DirDataEntry> iNodeIter = parentDir.children.iterator();
-                while (iNodeIter.hasNext()) {
-                    DirData.DirDataEntry current = iNodeIter.next();
-                    if (iNodeDeletion.equals(current.inode)) {
-                        childFound = true;
-                        iNodeIter.remove();
-                        break;
-                    }
-                }
-                if (!childFound) {
-                    throw new RuntimeException("Programmer error. Operation atomicity is broken.");
-                }
-                //TODO: shrink data block usage for parent when un-linking child
-                overwriteDataForINode(parentNode, parentDir.toByteArray());
-
-                //get list of child data blocks and iNodes
-                List<Integer> childDataBlocks = getDataBlocks(fsMeta.getINodes()[iNodeDeletion]);
-                List<Integer> childNodes = getINodes(fsMeta.getINodes()[iNodeDeletion]);
-                //also add the child iNode itself
-                childNodes.add(iNodeDeletion);
-
-                //mark them as free
-                for (Integer block : childDataBlocks) {
-                    fsMeta.getFreeData().clear(block);
-                }
-                for (Integer node : childNodes) {
-                    fsMeta.getFreeINode().clear(node);
-                    fsMeta.getINodes()[node] = null;
-                }
+                doRm_r(iNodeDeletion, parentNode, parentDir);
             }
         } finally {
             writeLock.unlock();
         }
     }
+
 
     @Override
     public void writeFile(String[] path, InputStream is) throws PathDoesNotExistException, StorageException, IOException {
@@ -574,6 +562,36 @@ public class FilesystemImpl implements Filesystem {
             f.write(blockData);
         } catch (IOException e) {
             throw new StorageException("Could not write", e);
+        }
+    }
+
+    private void doRm_r(Integer iNodeDeletion, INode parentNode, DirData parentDir) throws StorageException {
+        //update parent dir info
+        Iterator<DirData.DirDataEntry> iNodeIter = parentDir.children.iterator();
+        while (iNodeIter.hasNext()) {
+            DirData.DirDataEntry current = iNodeIter.next();
+            if (iNodeDeletion.equals(current.inode)) {
+                iNodeIter.remove();
+                break;
+            }
+        }
+
+        //TODO: shrink data block usage for parent when un-linking child
+        overwriteDataForINode(parentNode, parentDir.toByteArray());
+
+        //get list of child data blocks and iNodes
+        List<Integer> childDataBlocks = getDataBlocks(fsMeta.getINodes()[iNodeDeletion]);
+        List<Integer> childNodes = getINodes(fsMeta.getINodes()[iNodeDeletion]);
+        //also add the child iNode itself
+        childNodes.add(iNodeDeletion);
+
+        //mark them as free
+        for (Integer block : childDataBlocks) {
+            fsMeta.getFreeData().clear(block);
+        }
+        for (Integer node : childNodes) {
+            fsMeta.getFreeINode().clear(node);
+            fsMeta.getINodes()[node] = null;
         }
     }
 
