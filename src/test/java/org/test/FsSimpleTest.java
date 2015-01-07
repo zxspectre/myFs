@@ -49,6 +49,7 @@ public class FsSimpleTest {
     @Test
     public void testCreateCloseOpenFs() throws Exception {
         fs.format(fsFile, 1 << 12, 1 << 10);
+        System.gc();
         fs.close();
 
         fs = new FilesystemImpl();
@@ -115,6 +116,24 @@ public class FsSimpleTest {
         byte[] newData = fs.readFile(new String[]{"file"});
         Assert.assertTrue(Arrays.equals(data, newData));
     }
+
+
+    @Test
+    public void testReadFileAfterMount() throws Exception {
+        fs.format(fsFile, 1 << 12, 1 << 10);
+        fs.createEmptyFile(new String[]{"file"});
+        byte[] data = {1, 2, 3};
+        fs.writeFile(new String[]{"file"}, data);
+        System.gc();
+        fs.close();
+
+        fs = new FilesystemImpl();
+        fs.mount(fsFile);
+
+        byte[] newData = fs.readFile(new String[]{"file"});
+        Assert.assertTrue(Arrays.equals(data, newData));
+    }
+
 
     @Test
     public void testReadFileContentStream() throws Exception {
