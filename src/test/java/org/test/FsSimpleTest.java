@@ -20,12 +20,12 @@ public class FsSimpleTest {
     File fsFile;
     String testFileName = "myFsTest.dat";
     //    String testFileDir = System.getProperty("java.io.tmpdir");
-    String testFileDir = "C:\\temp";
+//    String testFileDir = "C:\\temp";
 
     @Before
     public void setup() throws Exception {
-        fsFile = new File(testFileDir, testFileName);
-//        fsFile = File.createTempFile(testFileName, null);
+//        fsFile = new File(testFileDir, testFileName);
+        fsFile = File.createTempFile(testFileName, null);
         if (fsFile.exists()) {
             fsFile.delete();
         }
